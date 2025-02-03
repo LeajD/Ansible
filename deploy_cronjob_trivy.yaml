@@ -1,0 +1,85 @@
+- name: Configure cron job to run script
+  hosts: os_patching_hosts
+  become: yes
+  vars:
+    trivy_version: 0.18.3
+    script_content: |
+      #!/bin/bash
+      WEBHOOK=$WEBHOOK_URL
+
+      MESSAGE1=$(trivy fs --vuln-type os --timeout 90m --skip-dirs /run / | grep '=' -A1 -B1 | head -n 3 | sed 's/^/###### /' )
+
+      if [ $? -eq 0 ]; then
+          echo "MESSAGE1 was successful."
+      else
+          curl -X POST -H "Content-Type: application/json" -d "{\"text\": \"TRIVY SECURITY OS SCANNING FAILED MESSAGE1\"}" $WEBHOOK 1> /dev/null
+          exit 1
+      fi
+
+      MESSAGE2=$(trivy fs --vuln-type os --timeout 90m --ignore-unfixed --skip-dirs /run / | grep '=' -A1 -B1 | head -n 3 | sed 's/^/###### /' )
+
+      if [ $? -eq 0 ]; then
+          echo "MESSAGE2 was successful."
+          curl -X POST -H "Content-Type: application/json" -d "{\"text\": \"TRIVY SECURITY OS SCANNING: \n $MESSAGE1 \n to be fixed: \n $MESSAGE2\"}" $WEBHOOK 1> /dev/null
+      else
+          curl -X POST -H "Content-Type: application/json" -d "{\"text\": \"TRIVY SECURITY OS SCANNING FAILED MESSAGE2\"}" $WEBHOOK 1> /dev/null
+          exit 1
+      fi
+      #trivy k8s --report summary cluster --timeout 90m --format table -o may-test-table2.txt --components workload --scanners vuln,misconfig,secret
+      #trivy k8s --report summary cluster --timeout 90m --format json -o report-json.json --components workload --scanners vuln,misconfig,secret
+    cron_schedule: "0 6 * * 1"  # Run at 6 PM every Friday
+
+  tasks:
+    - name: Add an entry for slack for trivy scan cronjob #make sure to specify
+      blockinfile:
+        path: /etc/hosts
+        block: |
+          $IP    $DOMAIN 
+
+    - name: Check connectivity to 8.8.8.8
+      command: ping -c 4 8.8.8.8
+      register: ping_result
+      ignore_errors: yes
+
+    - name: Print ping result
+      debug:
+        msg: "{{ ping_result.stdout }}"
+
+    #- name: Fail if ping to 8.8.8.8 was unsuccessful
+    #  fail:
+    #    msg: "Unable to ping 8.8.8.8"
+    #  when: ping_result.rc != 0
+
+    - name: Copy trivy to remote server
+      copy:
+        src: trivy.rpm
+        dest: /tmp/trivy.rpm
+    - name: Download the RPM package for trivy
+      get_url:
+        url: "https://github.com/aquasecurity/trivy/releases/download/v{{ trivy_version }}/trivy_{{ trivy_version }}_Linux-64bit.rpm"
+        dest: "/tmp/trivy"
+        mode: '0644'
+    - name: Install the RPM package for trivy
+      command: rpm -ivh /tmp/trivy.rpm
+      args:
+        creates: "/bin/trivy"
+      ignore_errors: yes
+    - name: Clean up the RPM package file for trivy
+      file:
+        path: "/tmp/trivy.rpm"
+        state: absent
+    - name: Copy script to remote server
+      copy:
+        content: "{{ script_content }}"
+        dest: "/usr/local/bin/trivy-os-scan.sh"
+        mode: 0744
+
+    - name: Add cron job
+      cron:
+        name: trivy_os_scan
+        job: "/usr/local/bin/trivy-os-scan.sh"
+        minute: "{{ cron_schedule.split(' ')[0] }}"
+        hour: "{{ cron_schedule.split(' ')[1] }}"
+        day: "{{ cron_schedule.split(' ')[2] }}"
+        month: "{{ cron_schedule.split(' ')[3] }}"
+        weekday: "{{ cron_schedule.split(' ')[4] }}"

@@ -1,0 +1,68 @@
+- name: Metricbeats
+  hosts: servers-metricbeat
+  become: true
+  gather_facts: true
+    vars:
+    filebeat_version: 7.10.0
+  tasks:
+  - name: Install
+    yum:
+      name: https://artifacts.elastic.co/downloads/beats/metricbeat/metricbeat-{{ filebeat_version }}-x86_64.rpm #set metricbeat version here
+      state: present
+  - name: Wipe configuration
+    copy:
+      content: ""
+      dest: /etc/metricbeat/metricbeat.yml
+  - name: Add kafka to hosts #make sure to specify
+    blockinfile:
+      path: /etc/hosts
+      block: |
+       $IP  $DOMAIN 
+  - name: Add config for Monitoring
+    blockinfile:
+      path: /etc/metricbeat/metricbeat.yml
+      block: |
+        metricbeat.config.modules:
+          path: ${path.config}/modules.d/*.yml
+          reload.enabled: false
+          reload.period: 30s
+        metricbeat.modules:
+        - module: system
+          period: 30s
+          metricsets:
+          - cpu
+          - core
+          - load
+          - memory
+          - network
+          - process
+          - process_summary
+          - socket_summary
+          - diskio
+          - filesystem
+          - fsstat
+          - uptime
+          cpu.metrics: ["normalized_percentages"]
+        processors:
+        - add_fields:
+            target: fields
+            fields:
+              operation-system: linux
+              location: location
+              team: team1
+              status: production #development
+              project: projectfield
+        output.kafka:
+          hosts: ["$IP_kafka:9092", "$IP_kafka_2:9092", "$IP_kafka_3:9092"]
+          topic: "infra_monitoring"
+          partition.round_robin:
+            reachable_only: false
+          required_acks: 1
+          compression: gzip
+          max_message_bytes: 1000000
+  - name: Enable Metricbeat
+    systemd:
+      state: restarted
+      enabled: yes
+      daemon_reload: yes
+      name: metricbeat

@@ -1,0 +1,152 @@
+- name: Init server
+  hosts: servers-create-user 
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars
+  tasks:
+
+  - name: Set the default gateway
+    network:
+      state: route
+      gw: $IP #make sure to specify
+
+  - name: Read existing /etc/resolv.conf
+    command: cat /etc/resolv.conf
+    register: existing_resolv_conf
+    changed_when: false
+
+  - name: Update /etc/resolv.conf
+    lineinfile:
+      path: /etc/resolv.conf
+      line: "{{ item }}"
+    with_items:
+      - "nameserver 8.8.8.8"
+      - "nameserver 1.1.1.1"
+      - "nameserver $IP_DNS"
+    when: "'nameserver $IP_DNS' not in existing_resolv_conf"
+
+  - name: Update yum repo and cache
+    yum:
+      update_cache: yes
+
+  - name: Upgrade all packages
+    yum:
+      name: '*'
+      state: latest
+
+  - name: Update yum repo and cache
+    yum:
+      update_cache: yes
+      #force_apt_get: yes
+      #cache_valid_time: 3600
+
+  - name: set mydistribution
+    ansible.builtin.set_fact:
+      mydistribution: "{{ 'rhel' if (ansible_distribution == 'Red Hat Enterprise Linux') else (ansible_distribution | lower) }}"
+
+
+  #centos as mydistribution for rocky linux
+  - name: Add repository into repo.d list
+    ansible.builtin.yum_repository:
+      name: docker
+      description: docker repository
+      baseurl: "https://download.docker.com/linux/centos/7/$basearch/stable" #$releasever
+      enabled: true
+      gpgcheck: true
+      gpgkey: "https://download.docker.com/linux/centos/gpg"
+
+  - name: Install Docker
+    ansible.builtin.yum:
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+      state: latest
+      update_cache: true
+
+  - name: Start Docker
+    ansible.builtin.service:
+      name: "docker"
+      enabled: true
+      state: started
+
+  - name: add Kubernetes' YUM repository
+    yum_repository:
+     name: Kubernetes
+     description: Kubernetes YUM repository
+     baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+     gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+     gpgcheck: yes
+
+
+  - name: install packages
+    yum:
+      name: "{{ packages }}"
+      state: present
+      update_cache: yes
+    vars:
+      packages:
+      - curl
+      - vim
+      - kubectl
+      - java-11-openjdk-devel
+      - lvm2
+      - yum-utils
+      - device-mapper-persistent-data
+      - net-tools
+      - tcpdump
+      - nc
+      - ntp
+      - ntpdate
+      - chrony
+      - git
+
+  - name: Start ntp
+    ansible.builtin.service:
+      name: "ntpd"
+      enabled: true
+      state: started
+
+  - name: Start ntp
+    ansible.builtin.service:
+      name: "chronyd"
+      enabled: true
+      state: started
+
+  - name: set timezone
+    shell: timedatectl set-timezone Europe/Warsaw
+  - name: Sync time initialy
+    shell: ntpdate $IP #make sure to specify
+    tags: ntp
+
+  - name: change vm.max_map_count for k8s
+    command: sysctl -w vm.max_map_count=262144
+
+  - name: Add Ansible inventory mappings to /etc/hosts
+    become: true
+    blockinfile:
+      path: /etc/hosts
+      block: |
+        $IP $DOMAIN
+
+  - name: Change logrotate configs for syslog
+    become: true
+    blockinfile:
+      path: /etc/logrotate.d/syslog
+      block: |
+        /var/log/cron
+        /var/log/maillog
+        /var/log/messages
+        /var/log/secure
+        /var/log/spooler
+        {
+            rotate 4
+            weekly
+            compress
+            missingok
+            sharedscripts
+            postrotate
+                /bin/kill -HUP `cat /var/run/syslogd.pid 2> /dev/null` 2> /dev/null || true
+            endscript
+        }

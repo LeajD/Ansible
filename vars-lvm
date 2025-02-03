@@ -1,0 +1,6 @@
+lv: docker
+vg: centos
+pv: /dev/sdb
+dir: /var/lib/docker
+type: xfs
+size: 10GB

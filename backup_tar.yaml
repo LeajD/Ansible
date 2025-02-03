@@ -1,0 +1,34 @@
+- name: Create and copy blog.tar.gz with correct ownership
+  hosts: app_servers  
+  become: yes          
+  vars:
+    archive_src: /usr/src/dba
+    archive_dest: /opt/dba
+    archive_name: blog.tar.gz
+  tasks:
+    - name: Ensure destination directory exists
+      file:
+        path: "{{ archive_dest }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create the archive blog.tar.gz
+      archive:
+        path: "{{ archive_src }}"
+        dest: "{{ archive_dest }}/{{ archive_name }}"
+        format: gz
+        remove: no
+
+    - name: Set ownership for the extracted files
+      file:
+        path: "{{ dest_dir }}"
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        recurse: yes
+      with_items:
+        - { inventory_hostname: 'host1', owner: 'user1', group: 'group1' }
+      when: inventory_hostname == item.inventory_hostname
+
+

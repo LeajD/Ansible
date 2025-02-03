@@ -1,0 +1,38 @@
+- name: Manage users and groups
+  hosts: all
+  become: true
+  vars_files:
+    - users
+    - encrypted_passwords.yml  #first you add "vault_password_file" to 'ansible.cfg', then run "ansible-vault encrypt_string 'dCV3szSGNA' --name 'developers_password'" > encrypted_passwords.yml
+  tasks:
+    - name: Add developers and admins groups
+      group:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - developers
+        - admins
+
+    - name: Add users and configure group memberships
+      user:
+        name: "{{ item }}"
+        group: "{{ 'developers' if item in developers else 'admins' }}"
+        groups: "{{ 'wheel' if item in admins else '' }}"
+        home: "{{ '/var/www' if item in developers else omit }}"
+        password: "{{ pass1 if item in developers else pass2 }}"
+        state: present
+        shell: /bin/bash
+      loop: "{{ developers + admins }}"
+      vars:
+        pass1: "{{ developers_password }}"
+        pass2: "{{ admins_password }}"
+
+    - name: Ensure admins are sudoers
+      user:
+        name: "{{ item }}"
+        groups: wheel
+        append: true
+        state: present
+      loop: "{{ admins }}"
+
+

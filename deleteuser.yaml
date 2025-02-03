@@ -1,0 +1,14 @@
+---
+- name: Create New Users
+  hosts: servers-delete-user
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yaml
+  tasks:
+    - name: Remove the user if present in the linux system
+      ansible.builtin.user:
+        name: "{{ item.username }}"
+        state: absent
+        remove: yes
+      with_items: "{{ users_to_delete }}"

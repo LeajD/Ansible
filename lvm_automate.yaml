@@ -1,0 +1,45 @@
+- name: Init server
+  hosts: servers-init
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars-lvm
+  tasks:
+  - name: Create a new primary partition from {{pv}}
+    community.general.parted:
+      device: {{pv}}
+      number: 1
+      state: present
+      flags: [ lvm ]
+      part_end: {{size}}
+
+  - name: task for creating volume group
+    lvg:
+      vg: {{vg}}
+      pvs: {{pv}}
+      pesize: 10
+
+  - name: Create a logical volume from disks  {{pv}}
+    community.general.lvol:
+      vg: {{vg}}
+      lv: {{lv}}
+      size: {{size}}
+      pvs: {{pv}}
+
+  - name: Create directory {{dev}} if not exists
+      file:
+        path: /dev/{{vg}}/{{lv}}
+        state: directory
+        mode: '0755'
+
+  - name: format the {{type}} filesystem 
+    filesystem:
+      fstype: {{type}}
+      dev: /dev/{{vg}}/{{lv}}
+
+  - name: mount the lv on {{dev}}
+    mount:
+      path: {{dir}}
+      src: /dev/{{vg}}/{{lv}}
+      fstype: {{type}}
+      state: mounted

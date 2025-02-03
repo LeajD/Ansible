@@ -1,0 +1,41 @@
+- name: Filebeat
+  hosts: all
+  become: yes
+  vars:
+    filebeat_version: 7.10.0
+  tasks:
+    - name: Install
+      yum:
+        name: https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-{{ filebeat_version }}-x86_64.rpm
+        state: present
+    - name: Wipe configuration
+      copy:
+        content: ""
+        dest: /etc/filebeat/filebeat.yml
+    - name: Add config for  filebeat 5044
+      blockinfile:
+        path: /etc/filebeat/filebeat.yml
+        block: |
+          filebeat.config.modules:
+            path: ${path.config}/modules.d/*.yml
+            reload.enabled: false
+          setup.template.settings:
+            index.number_of_shards: 1
+          setup.kibana:
+          output.logstash:
+            hosts: ["$IP:5044"] #make sure to specify
+          processors:
+            - add_host_metadata:
+                when.not.contains.tags: forwarded
+            - add_cloud_metadata: ~
+            - add_docker_metadata: ~
+            - add_kubernetes_metadata: ~
+    - name: Configure Filebeat
+      command:
+        cmd: /bin/filebeat modules enable system
+    - name: Enable filebeat
+      systemd:
+        state: restarted 
+        enabled: yes 
+        daemon_reload: yes 
+        name: filebeat

@@ -1,0 +1,21 @@
+- name: Create New User
+  hosts: servers-create-user
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yaml
+  tasks:
+  - name: Create User
+    ansible.builtin.user:
+      name: "{{ item.username }}"
+      state: present
+      shell: /bin/bash
+      groups: 'wheel'
+      append: yes
+    with_items: "{{ users_to_add }}"
+  - name: Set up multiple authorized keys
+    authorized_key:
+      user: "{{ item.username }}"
+      state: present
+      key: "{{ lookup('file', 'ssh-keys/{{item.username}}.pub') }}"
+    with_items: "{{ users_to_add }}"
